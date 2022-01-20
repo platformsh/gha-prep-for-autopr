@@ -23,8 +23,6 @@ runs:
         - name: 'Set up Github token'
           id: setup-gh-token
           shell: bash
-          env:
-              GITHUB_TOKEN=${{ inputs.github-token }}
           run: echo "GITHUB_TOKEN=${{ inputs.github-token }}" >> $GITHUB_ENV
 
         # 1. Make sure the template repo exists
