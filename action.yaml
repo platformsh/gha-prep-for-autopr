@@ -1,0 +1,130 @@
+name: 'Prep Repo for Automerge PR'
+description: 'Prepares a repository to perform automerge PRs. Used with auto dependency updating'
+inputs:
+    repo-owner:  # owner of the repo
+        description: 'Owner/namespace of the target repository'
+        required: true
+        default: ${{ github.repository_owner }}
+    repo-name:
+        description: 'Target repository name'
+        required: true
+        default: ${{ github.repository }}
+    github-token:
+        description: 'Github token to the repository so we can work with the github api. Typically GITHUB_TOKEN'
+        required: true
+outputs:
+    default-branch:
+        description: "The default branch for the repository"
+        value: ${{ steps.defaultbranch.outputs.branch }}
+
+runs:
+    using: "composite"
+    steps:
+        - name: 'Set up Github token'
+          id: setup-gh-token
+          shell: bash
+          env:
+              GITHUB_TOKEN=${{ inputs.github-token }}
+        # 1. Make sure the template repo exists
+        - name: Step 1. Verify the repo exists
+          id: template-repo-exists
+          run: |
+              # echo "::set-output name=slack_runurl::https://github.com/${REPOOWNER}/template-builder/actions/runs/${GITHUB_RUN_ID}"
+              # Why curl instead of the gh cli? Because on not found, the gh cli will return an exit code of 1 which immediately fails the step and the job
+              repoData=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/${{ inputs.repo-owner }}/${{ inputs.repo-name }})
+              repoID=$(echo "$repoData" | jq '.id')
+              repoNodeID=$(echo "$repoData" | jq '.node_id')
+              repoFound=$(echo "$repoData" | jq '.message')
+              echo "::notice::Repo Found status - ${repoFound}"
+              if [[ -z ${repoID} || "${repoFound}" == '"Not Found"'  ]]; then
+                message="The template repo for ${{ inputs.repo-name }} doesn't exist and will need to be created before I can help you."
+                echo "::error::${message}"
+                echo "SLACK_MSG=${message}" >> $GITHUB_ENV
+                echo "SLACK_PRURL=no-pr" >> $GITHUB_ENV
+                echo "SLACK_STATUS=skip" >> $GITHUB_ENV
+                exit 11;
+              else
+                echo "::set-output name=repoNodeID::${repoNodeID}"
+              fi
+        # 2. Verify the repository is set for automerge
+        - name: Step 2. Check if auto-merge is enabled for repository
+          run: |
+              autoMREnabled=$(gh api /repos/${{ inputs.repo-owner }}/${{ inputs.repo-name }} --jq '.allow_auto_merge')
+              if [[ "${autoMREnabled}" != "true" ]]; then
+                gh api -X PATCH /repos/${TEMPLATEOWNER}/${{ matrix.template }} --field allow_auto_merge=true
+              fi
+
+        #3. Get the template repo's default branch
+        - name: Step 3. Get template default branch
+          id: defaultbranch
+          run: |
+              # Get the default branch.
+              DEFAULT_BRANCH=$(gh api /repos/${{ inputs.repo-owner }}/${{ inputs.repo-name }} --jq '.default_branch')
+              echo "Our default branch for this template is ${DEFAULT_BRANCH}"
+              echo "::set-output name=branch::$DEFAULT_BRANCH"
+
+        # 4. Create branch protection if does not exist on the default branch; update to latest version.
+        - name: Step 4. Check if template already has a protection rule on default branch
+          run: |
+              # Step 4a - See if the protection needs to be created.
+              defaultBranch=${{ steps.defaultbranch.outputs.branch }}
+              repoNodeID=${{ steps.template-repo-exists.outputs.repoNodeID }}
+              protectionCheckQuery='
+              query($name: String!, $owner: String!) {
+                  repository(owner: $owner, name: $name) {
+                      branchProtectionRules(first:10) {
+                          nodes {
+                              id
+                              pattern
+                          }
+                      }
+                  }
+              }
+              '
+              RESULT=$(gh api graphql -F owner="${{ inputs.repo-owner }}" -F name="${{ inputs.repo-name }}" -f query="${protectionCheckQuery}")
+              DEFAULT_BRANCH_PROTECTION_EXISTS=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
+              PROTECTION_ID=$(echo $DEFAULT_BRANCH_PROTECTION_EXISTS | jq -r '.id')
+              # Step 4b - Create the protection if it doesn't exist.
+              if [ ${#PROTECTION_ID} -gt 0 ]; then
+                  printf "\n%s: the default branch (%s) is protected (%s).\n" "${{ inputs.repo-name }}" "${defaultBranch}" "${PROTECTION_ID}"
+              else
+                  printf "\n%s: the default branch (%s) is NOT protected. Creating protection.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
+
+                  branchProtectionRule="
+                      mutation(\$repositoryId:ID!,\$branch:String!) {
+                          createBranchProtectionRule(input: {
+                          repositoryId: \$repositoryId
+                          pattern: \$branch
+                          requiresStatusChecks: true
+                          requiresStrictStatusChecks: true
+                          requiredStatusCheckContexts: [\"platformsh\"]
+                          requiresApprovingReviews: true
+                          requiredApprovingReviewCount: 0
+                          isAdminEnforced: true
+                          }) { clientMutationId }
+                      }
+                  "
+                  # @todo Should we test to see if the mutation failed?
+                  gh api graphql -F repositoryId="${repoNodeID}" -F branch="${defaultBranch}" -f query="${branchProtectionRule}"
+                  RESULT=$(gh api graphql -F owner="${{ inputs.repo-owner }}" -F name="${{ inputs.repo-name }}" -f query="${protectionCheckQuery}")
+                  DEFAULT_BRANCH_PROTECTION_EXISTS=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
+                  PROTECTION_ID=$(echo $DEFAULT_BRANCH_PROTECTION_EXISTS | jq -r '.id')
+                  printf "\n%s: the default branch (%s) is protected (%s).\n" "${1}" "${defaultBranch}" "${PROTECTION_ID}"
+              fi
+              # Step 4c - Update the current branch protection, in case we've changed it.
+              branchProtectionRule="
+                  mutation(\$branchProtectionRuleId:ID!,\$branch:String!) {
+                      updateBranchProtectionRule(input: {
+                      branchProtectionRuleId: \$branchProtectionRuleId
+                      pattern: \$branch
+                      requiresStatusChecks: true
+                      requiresStrictStatusChecks: true
+                      requiredStatusCheckContexts: [\"platformsh\"]
+                      requiresApprovingReviews: true
+                      requiredApprovingReviewCount: 0
+                      isAdminEnforced: true
+                      }) { clientMutationId }
+                  }
+              "
+              # @todo Should we test to see if the mutation failed?
+              gh api graphql -F branchProtectionRuleId="${PROTECTION_ID}" -F branch="${defaultBranch}" -f query="${branchProtectionRule}"
