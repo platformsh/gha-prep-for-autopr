@@ -28,6 +28,7 @@ runs:
         # 1. Make sure the template repo exists
         - name: Step 1. Verify the repo exists
           id: template-repo-exists
+          shell: bash
           run: |
               # echo "::set-output name=slack_runurl::https://github.com/${REPOOWNER}/template-builder/actions/runs/${GITHUB_RUN_ID}"
               # Why curl instead of the gh cli? Because on not found, the gh cli will return an exit code of 1 which immediately fails the step and the job
@@ -48,6 +49,7 @@ runs:
               fi
         # 2. Verify the repository is set for automerge
         - name: Step 2. Check if auto-merge is enabled for repository
+          shell: bash
           run: |
               autoMREnabled=$(gh api /repos/${{ inputs.repo-owner }}/${{ inputs.repo-name }} --jq '.allow_auto_merge')
               if [[ "${autoMREnabled}" != "true" ]]; then
@@ -57,6 +59,7 @@ runs:
         #3. Get the template repo's default branch
         - name: Step 3. Get template default branch
           id: defaultbranch
+          shell: bash
           run: |
               # Get the default branch.
               DEFAULT_BRANCH=$(gh api /repos/${{ inputs.repo-owner }}/${{ inputs.repo-name }} --jq '.default_branch')
@@ -65,6 +68,7 @@ runs:
 
         # 4. Create branch protection if does not exist on the default branch; update to latest version.
         - name: Step 4. Check if template already has a protection rule on default branch
+          shell: bash
           run: |
               # Step 4a - See if the protection needs to be created.
               defaultBranch=${{ steps.defaultbranch.outputs.branch }}
