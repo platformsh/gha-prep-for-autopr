@@ -11,6 +11,7 @@ up a github integration for your platform.sh project) as a required check on you
 * `default-branch` - The default branch for the repository.
 
 ## Example usage:
+See `Prep the repo for autoPR` step below.
 ```yaml
 name: Trigger Auto PR on push to update branch
 on:
