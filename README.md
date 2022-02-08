@@ -13,7 +13,9 @@ a github integration for your platform.sh project) as a required check on your d
 * `github-token` -
   Github [personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token)
   with access rights to the target repository so we can work with the github api. **REQUIRED**.
-
+* `status-checks` - Comma seperated list of status checks that must pass for the PR to be accepted. Defaults to 
+  `platformsh,TestPrEnvironment`. You do not need to include `platformsh` as it will **always** be included. If you do 
+   not have a `TestPrEnvironment` check, and want to remove it, pass in an empty string for this input.
 ## Outputs
 
 * `default-branch` - The default branch for the repository.

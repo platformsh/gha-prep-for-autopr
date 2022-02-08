@@ -12,7 +12,11 @@ inputs:
   github-token:
     description: 'Github token to the repository so we can work with the github api. Typically GITHUB_TOKEN'
     required: true
-
+  status-checks:
+    description: 'Comma seperated list of status checks that must pass for the PR to be accepted. Defaults to `platformsh,TestPrEnvironment`'
+    required: false
+    # platformsh is always added, so this is just the extras
+    default: 'TestPrEnvironment'
 outputs:
   default-branch:
     description: "The default branch for the repository"
@@ -25,7 +29,19 @@ runs:
       id: setup-gh-token
       shell: bash
       run: echo "GITHUB_TOKEN=${{ inputs.github-token }}" >> $GITHUB_ENV
-
+    - name: 'Parse status checks'
+      id: parse-status-checks
+      shell: bash
+      run: |
+        statusChecks=${{ inputs.status-checks }}
+        #ok, let's see if they included `platformsh` even though we told them not to
+        # no word boundaries in bash so we have to fake it
+        pshPattern="(^|,)(platformsh(,|$))"
+        if ! [[ ${statusChecks} =~ ${pshPattern} ]]; then
+          #good, they didnt include it, so let's add it to what they gave us
+          statusChecks="platformsh,${statusChecks}"
+        fi
+        echo "::set-output name=statuschecks::${statusChecks}"
     # 1. Make sure the template repo exists
     - name: Step 1. Verify the repo exists
       id: template-repo-exists
@@ -80,6 +96,7 @@ runs:
                     nodes {
                         id
                         pattern
+                        requiredStatusCheckContexts
                     }
                 }
             }
@@ -88,12 +105,16 @@ runs:
         RESULT=$(gh api graphql -F owner="${{ inputs.repo-owner }}" -F name="${{ inputs.repo-name }}" -f query="${protectionCheckQuery}")
         DEFAULT_BRANCH_PROTECTION_EXISTS=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
         PROTECTION_ID=$(echo $DEFAULT_BRANCH_PROTECTION_EXISTS | jq -r '.id')
+
+        statusChecks=${{ steps.parse-status-checks.outputs.statuschecks }}
+        # we need each item in status checks to be surrounded in quotes
+        statusChecks="\"${statusChecks//,/\",\"}\""
+
         # Step 4b - Create the protection if it doesn't exist.
         if [ ${#PROTECTION_ID} -gt 0 ]; then
             printf "\n%s: the default branch (%s) is protected (%s).\n" "${{ inputs.repo-name }}" "${defaultBranch}" "${PROTECTION_ID}"
         else
             printf "\n%s: the default branch (%s) is NOT protected. Creating protection.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
-
             branchProtectionRule="
                 mutation(\$repositoryId:ID!,\$branch:String!) {
                     createBranchProtectionRule(input: {
@@ -101,7 +122,7 @@ runs:
                     pattern: \$branch
                     requiresStatusChecks: true
                     requiresStrictStatusChecks: true
-                    requiredStatusCheckContexts: [\"platformsh\"]
+                    requiredStatusCheckContexts: [${statusChecks}]
                     requiresApprovingReviews: true
                     requiredApprovingReviewCount: 0
                     isAdminEnforced: true
@@ -116,6 +137,7 @@ runs:
             printf "\n%s: the default branch (%s) is protected (%s).\n" "${1}" "${defaultBranch}" "${PROTECTION_ID}"
         fi
         # Step 4c - Update the current branch protection, in case we've changed it.
+        # @todo, verify that if a requiredStatusCheckContexts was manually added, this wont clobber it
         branchProtectionRule="
             mutation(\$branchProtectionRuleId:ID!,\$branch:String!) {
                 updateBranchProtectionRule(input: {
@@ -123,7 +145,7 @@ runs:
                 pattern: \$branch
                 requiresStatusChecks: true
                 requiresStrictStatusChecks: true
-                requiredStatusCheckContexts: [\"platformsh\"]
+                requiredStatusCheckContexts: [${statusChecks}]
                 requiresApprovingReviews: true
                 requiredApprovingReviewCount: 0
                 isAdminEnforced: true
