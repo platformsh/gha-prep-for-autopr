@@ -1,7 +1,7 @@
 # Prep for Auto Pull Request
 
 In order for your github repository to support auto-merging of pull requests there are several settings that need to be
-need to be set-up/enabled. This action sets up all those items, and adds `platformsh` (the check created when you set up
+set-up/enabled. This GitHub Action sets up all those items, and adds `platformsh` (the check created when you set up
 a github integration for your platform.sh project) as a required check on your default branch.
 
 ## Inputs
