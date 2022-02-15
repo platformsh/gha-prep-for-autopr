@@ -128,7 +128,7 @@ runs:
             if [[ "true" != "${testCheck}" ]]; then
               message=$(printf "${genMsg}" "${check}")
               updateNeeded='yes'
-              echo "::error::${message}
+              echo "::error::${message}"
             fi
           done;
 
@@ -148,7 +148,7 @@ runs:
           unset IFS
 
           #do we need to update the rule?
-          if [[ "${combinedChecks[*]}" != "${currentStatusChecks[*}" || "yes" == "${updateNeeded}" ]]; then
+          if [[ "${combinedChecks[*]}" != "${currentStatusChecks[*]}" || "yes" == "${updateNeeded}" ]]; then
             printf "\n%s: the default branch protection rules for branch %s need updating.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
             #We need to convert our list of status checks back to a string of double quoted items seperated by a comma
             #first back to a comma seperated string
