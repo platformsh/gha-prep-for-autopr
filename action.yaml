@@ -97,7 +97,10 @@ runs:
                     nodes {
                         id
                         pattern
+                        requiresStatusChecks
+                        requiresStrictStatusChecks
                         requiredStatusCheckContexts
+                        requiresApprovingReviews
                     }
                 }
             }
