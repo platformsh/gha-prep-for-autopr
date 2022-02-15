@@ -84,6 +84,7 @@ runs:
 
     # 4. Create branch protection if does not exist on the default branch; update to latest version.
     - name: Step 4. Check if template already has a protection rule on default branch
+      id: get-branch-protection-rule
       shell: bash
       run: |
         # Step 4a - See if the protection needs to be created.
@@ -103,22 +104,61 @@ runs:
         }
         '
         RESULT=$(gh api graphql -F owner="${{ inputs.repo-owner }}" -F name="${{ inputs.repo-name }}" -f query="${protectionCheckQuery}")
-        DEFAULT_BRANCH_PROTECTION_EXISTS=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
-        PROTECTION_ID=$(echo $DEFAULT_BRANCH_PROTECTION_EXISTS | jq -r '.id')
-
-        statusChecks=${{ steps.parse-status-checks.outputs.statuschecks }}
-        # we need each item in status checks to be surrounded in quotes
-        statusChecks="\"${statusChecks//,/\",\"}\""
+        defaultBranchProtectionRule=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
 
         # Step 4b - Create the protection if it doesn't exist.
-        if [ ${#PROTECTION_ID} -gt 0 ]; then
-            printf "\n%s: the default branch (%s) is protected (%s).\n" "${{ inputs.repo-name }}" "${defaultBranch}" "${PROTECTION_ID}"
-        else
-            printf "\n%s: the default branch (%s) is NOT protected. Creating protection.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
+        protectionID=$(echo "${defaultBranchProtectionRule}" | jq -r '.id')
+        #I don't remember why we originally went with a strlen > 0 vs [[ -n "${protectionID}" ]]
+        if (( ${#protectionID} > 0 )); then
+          updateNeeded='no'
+          # We have a rule, but does it include the minimum setup we need?
+          # * requiresStatusChecks=true
+          # * requiresStrictStatusChecks: true
+          # * requiredStatusCheckContexts = includes at least platformsh
+          # * requiresApprovingReviews
+          # for each required check we need, let's see if they have it before we alter the rule, and if not, warn them
+          requiredChecks=("requiresStatusChecks" "requiresStrictStatusChecks" "requiresApprovingReviews")
+          genWarn="You do not currently have %s set as true for protection rule ID"
+          genWarn=$(printf "%s %s on branch %s. " "${genWarn}" "${protectionID}" "${defaultBranch}")
+          genWarn="${genWarn}I must set it to true in order for the auto-merge PR to work correctly. If you believe"
+          genWarn="${getWarn} this is in error, please contact devrel@platform.sh"
+
+          for check in "${requiredChecks[@]}"; do
+            testCheck=$(echo "${defaultBranchProtectionRule}" | jq -r ".${check}");
+            if [[ "true" != "${testCheck}" ]]; then
+              message=$(printf "${genMsg}" "${check}")
+              updateNeeded='yes'
+              echo "::error::${message}
+            fi
+          done;
+
+          #done warning them, now we need to check the status check array to see if we need to merge
+          IFS=',' read -r -a currentStatusChecks < <(echo "${defaultBranchProtectionRule}" | jq -r '.requiredStatusCheckContexts | join(",")')
+
+          # now we need to compare that to our status checks. Ours is also seperated with a comma
+          IFS=',' read -r -a neededStatusChecks < <(echo "${{ steps.parse-status-checks.outputs.statuschecks }}")
+
+          # now we need to combine them, and only keep what is unique. Since we KNOW ours has platformsh, we shouldnt
+          # need to test for it again. I was unable to figure out another method in bash to array merge keeping only uniques
+          IFS=$'\n'
+          combinedChecks=($(for item in "${neededStatusChecks[@]}" "${currentStatusChecks[@]}"; do echo "${item}"; done | sort -u))
+
+          #now sort the original so we can see if they are identical
+          IFS=$'\n' currentStatusChecks=($(sort <<<"${currentStatusChecks[*]}"))
+          unset IFS
+
+          #do we need to update the rule?
+          if [[ "${combinedChecks[*]}" != "${currentStatusChecks[*}" || "yes" == "${updateNeeded}" ]]; then
+            printf "\n%s: the default branch protection rules for branch %s need updating.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
+            #We need to convert our list of status checks back to a string of double quoted items seperated by a comma
+            #first back to a comma seperated string
+            statusChecks=$( IFS=','; echo "${combinedChecks[*]}")
+            #and now add the quotes
+            statusChecks="\"${statusChecks//,/\",\"}\""
             branchProtectionRule="
-                mutation(\$repositoryId:ID!,\$branch:String!) {
-                    createBranchProtectionRule(input: {
-                    repositoryId: \$repositoryId
+                mutation(\$branchProtectionRuleId:ID!,\$branch:String!) {
+                    updateBranchProtectionRule(input: {
+                    branchProtectionRuleId: \$branchProtectionRuleId
                     pattern: \$branch
                     requiresStatusChecks: true
                     requiresStrictStatusChecks: true
@@ -130,27 +170,30 @@ runs:
                 }
             "
             # @todo Should we test to see if the mutation failed?
-            gh api graphql -F repositoryId="${repoNodeID}" -F branch="${defaultBranch}" -f query="${branchProtectionRule}"
-            RESULT=$(gh api graphql -F owner="${{ inputs.repo-owner }}" -F name="${{ inputs.repo-name }}" -f query="${protectionCheckQuery}")
-            DEFAULT_BRANCH_PROTECTION_EXISTS=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
-            PROTECTION_ID=$(echo $DEFAULT_BRANCH_PROTECTION_EXISTS | jq -r '.id')
-            printf "\n%s: the default branch (%s) is protected (%s).\n" "${1}" "${defaultBranch}" "${PROTECTION_ID}"
+            # also, we could potentially combine this call and the create branch call into one command
+            gh api graphql -F branchProtectionRuleId="${protectionID}" -F branch="${defaultBranch}" -f query="${branchProtectionRule}"
+          fi
+
+        else
+          printf "\n%s: the default branch (%s) is NOT protected. Creating protection.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
+          branchProtectionRule="
+              mutation(\$repositoryId:ID!,\$branch:String!) {
+                  createBranchProtectionRule(input: {
+                  repositoryId: \$repositoryId
+                  pattern: \$branch
+                  requiresStatusChecks: true
+                  requiresStrictStatusChecks: true
+                  requiredStatusCheckContexts: [${statusChecks}]
+                  requiresApprovingReviews: true
+                  requiredApprovingReviewCount: 0
+                  isAdminEnforced: true
+                  }) { clientMutationId }
+              }
+          "
+          # @todo Should we test to see if the mutation failed?
+          gh api graphql -F repositoryId="${repoNodeID}" -F branch="${defaultBranch}" -f query="${branchProtectionRule}"
+          RESULT=$(gh api graphql -F owner="${{ inputs.repo-owner }}" -F name="${{ inputs.repo-name }}" -f query="${protectionCheckQuery}")
+          DEFAULT_BRANCH_PROTECTION=$(echo $RESULT | jq --arg DEFAULT_BRANCH "$defaultBranch" '.data.repository.branchProtectionRules.nodes[] | select(.pattern==$DEFAULT_BRANCH)')
+          PROTECTION_ID=$(echo $DEFAULT_BRANCH_PROTECTION | jq -r '.id')
+          printf "\n%s: the default branch (%s) is protected (%s).\n" "${1}" "${defaultBranch}" "${PROTECTION_ID}"
         fi
-        # Step 4c - Update the current branch protection, in case we've changed it.
-        # @todo, verify that if a requiredStatusCheckContexts was manually added, this wont clobber it
-        branchProtectionRule="
-            mutation(\$branchProtectionRuleId:ID!,\$branch:String!) {
-                updateBranchProtectionRule(input: {
-                branchProtectionRuleId: \$branchProtectionRuleId
-                pattern: \$branch
-                requiresStatusChecks: true
-                requiresStrictStatusChecks: true
-                requiredStatusCheckContexts: [${statusChecks}]
-                requiresApprovingReviews: true
-                requiredApprovingReviewCount: 0
-                isAdminEnforced: true
-                }) { clientMutationId }
-            }
-        "
-        # @todo Should we test to see if the mutation failed?
-        gh api graphql -F branchProtectionRuleId="${PROTECTION_ID}" -F branch="${defaultBranch}" -f query="${branchProtectionRule}"
