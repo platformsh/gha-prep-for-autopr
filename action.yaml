@@ -150,6 +150,9 @@ runs:
           #do we need to update the rule?
           if [[ "${combinedChecks[*]}" != "${currentStatusChecks[*]}" || "yes" == "${updateNeeded}" ]]; then
             printf "\n%s: the default branch protection rules for branch %s need updating.\n" "${{ inputs.repo-name }}" "${defaultBranch}"
+            echo "::error line=153::value of updateNeeded is ${updateNeeded}"
+            echo "::error line=154::combinedChecks are ${combinedChecks[*]}"
+            echo "::error line=155::curentStatChecks are ${currentStatusChecks[*]}"
             #We need to convert our list of status checks back to a string of double quoted items seperated by a comma
             #first back to a comma seperated string
             statusChecks=$( IFS=','; echo "${combinedChecks[*]}")
