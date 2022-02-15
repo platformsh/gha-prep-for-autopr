@@ -130,6 +130,7 @@ runs:
               updateNeeded='yes'
               echo "::error line=131::value of Check is ${check}"
               echo "::error line=132::value of testCheck ${testCheck}"
+              echo "::error line=133::value of defaultBranchProtectionRule : ${defaultBranchProtectionRule}"
               echo "::error::${genWarn}"
             fi
           done;
