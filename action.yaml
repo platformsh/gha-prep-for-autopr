@@ -129,15 +129,8 @@ runs:
           for check in "${requiredChecks[@]}"; do
             testCheck=$(echo "${defaultBranchProtectionRule}" | jq -r ".${check}");
             if [[ "true" != "${testCheck}" ]]; then
-              message=$(printf "${genMsg}" "${check}")
-              updateNeeded='yes'
-              echo "::error::${message}"
-            else
-              echo "::notice::Current check is ${check}"
-              echo "::notice::Contents of genWarn: ${genWarn}"
-              foo="You do not currently have %s set as true for protection rule ID"
               printf -v mymessage "${genWarn}" "${check}"
-              echo "What if we echo our message directly? ${mymessage}"
+              updateNeeded='yes'
               echo "::error::${mymessage}"
             fi
           done;
