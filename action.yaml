@@ -136,9 +136,9 @@ runs:
               echo "::notice::Current check is ${check}"
               echo "::notice::Contents of genWarn: ${genWarn}"
               foo="You do not currently have %s set as true for protection rule ID"
-              printf -v mymessage "${foo}" "${check}"
+              printf -v mymessage "${genWarn}" "${check}"
               echo "What if we echo our message directly? ${mymessage}"
-              echo "::notice::Testing message that would be used in an error: ${mymessage}"
+              echo "::error::${mymessage}"
             fi
           done;
 
