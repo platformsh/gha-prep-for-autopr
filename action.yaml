@@ -125,16 +125,16 @@ runs:
           genWarn=$(printf "%s %s on branch %s. " "${genWarn}" "${protectionID}" "${defaultBranch}")
           genWarn="${genWarn}I must set it to true in order for the auto-merge PR to work correctly. If you believe"
           genWarn="${getWarn} this is in error, please contact devrel@platform.sh"
-
+          echo "::notice::Contents of genWarn: ${genWarn}"
           for check in "${requiredChecks[@]}"; do
             testCheck=$(echo "${defaultBranchProtectionRule}" | jq -r ".${check}");
             if [[ "true" != "${testCheck}" ]]; then
               message=$(printf "${genMsg}" "${check}")
               updateNeeded='yes'
-              echo "::error line=131::value of Check is ${check}"
-              echo "::error line=132::value of testCheck ${testCheck}"
-              echo "::error line=133::value of defaultBranchProtectionRule : ${defaultBranchProtectionRule}"
-              echo "::error::${genWarn}"
+              echo "::error::${message}"
+            else
+              message=$(printf "${genMsg}" "${check}")
+              echo "::notice::Testing message that would be used in an error: ${message}"
             fi
           done;
 
