@@ -124,7 +124,7 @@ runs:
           genWarn="You do not currently have %s set as true for protection rule ID"
           genWarn=$(printf "%s %s on branch %s. " "${genWarn}" "${protectionID}" "${defaultBranch}")
           genWarn="${genWarn}I must set it to true in order for the auto-merge PR to work correctly. If you believe"
-          genWarn="${getWarn} this is in error, please contact devrel@platform.sh"
+          genWarn="${genWarn} this is in error, please contact devrel@platform.sh"
           echo "::notice::Contents of genWarn: ${genWarn}"
           for check in "${requiredChecks[@]}"; do
             testCheck=$(echo "${defaultBranchProtectionRule}" | jq -r ".${check}");
