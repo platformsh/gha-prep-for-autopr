@@ -135,7 +135,8 @@ runs:
             else
               echo "::notice::Current check is ${check}"
               echo "::notice::Contents of genWarn: ${genWarn}"
-              mymessage=$(printf "${genMsg}" "${check}")
+              printf -v mymessage "${genMsg}" "${check}"
+              echo "What if we echo our message directly? ${mymessage}"
               echo "::notice::Testing message that would be used in an error: ${mymessage}"
             fi
           done;
