@@ -39,9 +39,9 @@ runs:
         pshPattern="(^|,)(platformsh(,|$))"
         if ! [[ ${statusChecks} =~ ${pshPattern} ]]; then
           #good, they didnt include it, so let's add it to what they gave us
-          statusChecks="platformsh,${statusChecks}" >> $GITHUB_OUTPUT
+          statusChecks="platformsh,${statusChecks}"
         fi
-        echo "statuschecks=${statusChecks}"
+        echo "statuschecks=${statusChecks}" >> $GITHUB_OUTPUT
     # 1. Make sure the template repo exists
     - name: Step 1. Verify the repo exists
       id: template-repo-exists
