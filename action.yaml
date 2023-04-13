@@ -33,7 +33,7 @@ runs:
       id: parse-status-checks
       shell: bash
       run: |
-        statusChecks=${{ inputs.status-checks }}
+        statusChecks="${{ inputs.status-checks }}"
         #ok, let's see if they included `platformsh` even though we told them not to
         # no word boundaries in bash so we have to fake it
         pshPattern="(^|,)(platformsh(,|$))"
@@ -88,8 +88,8 @@ runs:
       shell: bash
       run: |
         # Step 4a - See if the protection needs to be created.
-        defaultBranch=${{ steps.defaultbranch.outputs.branch }}
-        repoNodeID=${{ steps.template-repo-exists.outputs.repoNodeID }}
+        defaultBranch="${{ steps.defaultbranch.outputs.branch }}"
+        repoNodeID="${{ steps.template-repo-exists.outputs.repoNodeID }}"
         protectionCheckQuery='
         query($name: String!, $owner: String!) {
             repository(owner: $owner, name: $name) {
